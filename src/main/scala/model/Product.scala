@@ -5,8 +5,8 @@ package model
 
 
 
-
-case class Product( val id:String, productType:String,  attributes:Attributes)
+trait guard
+case class Product( val id:String, productType:String,  attributes:Attributes) extends guard
 
 case class Attributes(  description:String,   name:String,   partNumber:String,
                         brand:String, price:ProductPrice)

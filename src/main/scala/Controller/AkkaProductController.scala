@@ -2,7 +2,7 @@ package com.najkhan.lightlunch
 package Controller
 
 import slick.jdbc.PostgresProfile.api._
-import akka.actor.typed.ActorSystem
+import akka.actor.typed.{ActorRef, ActorSystem}
 import akka.actor.typed.scaladsl.Behaviors
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives._
@@ -12,26 +12,32 @@ import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
 import model.persistance.ProductRepository
 
 import spray.json.DefaultJsonProtocol._
-import model.persistance.ProductRepository.{ findProd, getAllOrders, getProduct, presistProduct, saveOrder}
-import model.{Basket, BasketRequest, Product}
+import model.persistance.ProductRepository.{findProd, getAllOrders, getProduct, presistProduct, saveOrder}
+import model.{Basket, BasketRequest, Product, guard}
 import service.BasketService.{addToBasket, baskets, createBasket}
 
+import akka.actor.typed.scaladsl.AskPattern.{Askable, schedulerFromActorSystem}
+import akka.util.Timeout
+import com.najkhan.lightlunch.Actors.ProdActor
+import com.najkhan.lightlunch.Actors.ProdActor.prodAc
 import com.najkhan.lightlunch.JsonConversion.JsonConversion
 
 import scala.collection.mutable
+import scala.concurrent.Future
+import scala.concurrent.duration.DurationInt
 
 
 
 object AkkaProductController extends App with JsonConversion{
 
-  implicit val system = ActorSystem(Behaviors.empty, "my-system")
+  implicit val system :ActorSystem[prodReqAc] = ActorSystem(ProdActor.apply(), "my-system")
 
   // needed for the future flatMap/onComplete in the end
   implicit val executionContext = system.executionContext
-
+  val acref :ActorRef[prodReqAc] = system
 
   case class prodReq(id :Long)
-
+  case class prodReqAc(id :Long,acRef :ActorRef[guard]) extends guard
 
 
   val prodRoute = {
@@ -56,11 +62,21 @@ object AkkaProductController extends App with JsonConversion{
     pathPrefix("product") {
       path(Segment){ req =>
        get {
-              val res = findProd(req.value.toLong)
-              onSuccess(res) {
-                case Seq(p@(_,_,_)) => complete(StatusCodes.OK, ProductRepository.getProduct(p))
-                case _ => complete(StatusCodes.NotFound, "No such product")
-              }
+         implicit val timeout: Timeout = 5.seconds
+             // val res = findProd(req.value.toLong)
+//              onSuccess(res) {
+//                case Seq(p@(_,_,_)) => complete(StatusCodes.OK, ProductRepository.getProduct(p))
+//                case _ => complete(StatusCodes.NotFound, "No such product")
+//              }
+         val prod =  system.ask( ref =>prodReqAc(req.toLong,ref))
+          onSuccess(prod) {
+                           case prodAc(value) =>
+                             onSuccess(value) {
+                               case p@Product(_,_,_) => complete(StatusCodes.OK, p)
+                             }
+                           case _ => complete(StatusCodes.NotFound, "No such product")
+                         }
+
             }
           }
       },
